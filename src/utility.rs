@@ -6,76 +6,96 @@ pub struct Point {
     pub y: i16,
 }
 
+pub const MAX_N: usize = 20;        // adjust if needed
+pub const MAX_DIST: usize = 400;    // max manhattan distance
 
-pub fn distance(p1: &Point, p2: &Point) -> i16 { // manhattan distance
-    (p1.x-p2.x).abs() + (p1.y-p2.y).abs()
+// Manhattan distance
+#[inline]
+pub fn distance(p1: &Point, p2: &Point) -> i16 {
+    (p1.x - p2.x).abs() + (p1.y - p2.y).abs()
 }
 
-pub fn compute_distances(points: &Vec<Point>) -> Vec<i16> { //given a set of points, compute the distances between them
-    let mut distances = Vec::new();
-    for i in 0..points.len() {
-        for j in i+1..points.len() {
-            distances.push(distance(&points[i], &points[j]));
-        }
-    }
-    distances
-}
-
-pub fn update_distances(points: &Vec<Point>, new_point: &Point, distances: &mut Vec<i16>) { // given a new point, remove all distances to it from the list of distances
-    for p in points {
-        let d = distance(p, new_point);
-        if let Some(pos) = distances.iter().position(|&x| x == d) {
-            distances.remove(pos);
-        }
-    }
-}
-
-pub fn compute_offsets(distances: &[i16]) -> Vec<Point> {
-    let mut offsets = Vec::new();
-    for &d in distances {
+// Precompute diamond offsets for each distance
+pub fn compute_offsets(max_distance: i16) -> Vec<Vec<Point>> {
+    let mut offsets: Vec<Vec<Point>> = vec![Vec::new(); (max_distance + 1) as usize];
+    for d in 1..=max_distance {
+        let mut vec = Vec::new();
         for x in -d..=d {
             let y = d - x.abs();
-            offsets.push(Point { x, y });
-            if y != 0 { // don't duplicate the axis points
-                offsets.push(Point { x, y: -y });
+            vec.push(Point { x, y });
+            if y != 0 {
+                vec.push(Point { x, y: -y });
             }
         }
+        offsets[d as usize] = vec;
     }
     offsets
 }
 
-
-pub fn build_distance_set(p: &Point, offsets: &[Point], force_positive: bool) -> HashSet<Point> {
-    let mut set = HashSet::new();
-    for &o in offsets {
-        if !force_positive || (p.x+o.x >= 0 && p.y+o.y >= 0) {
-            set.insert(Point { x: p.x+o.x, y: p.y+o.y });
+// Check if adding candidate produces duplicate distances
+pub fn check_distances_fast(points: &[Point], candidate: Point, used: &[bool; MAX_DIST]) -> bool {
+    for &p in points {
+        let d = distance(&p, &candidate) as usize;
+        if d >= MAX_DIST || used[d] {
+            return false;
         }
     }
-    set
+    true
 }
 
-pub fn build_intersection_set(points: &[Point], offsets: &[Point], force_positive: bool) -> HashSet<Point> {
+// Mark/unmark distances when adding/removing a point
+pub fn mark_distances(points: &[Point], candidate: Point, used: &mut [bool; MAX_DIST]) {
+    for &p in points {
+        let d = distance(&p, &candidate) as usize;
+        used[d] = true;
+    }
+}
+
+pub fn unmark_distances(points: &[Point], candidate: Point, used: &mut [bool; MAX_DIST]) {
+    for &p in points {
+        let d = distance(&p, &candidate) as usize;
+        used[d] = false;
+    }
+}
+
+// Generate candidate points for next step
+pub fn generate_candidates(points: &[Point], offsets: &[Vec<Point>], used: &[bool; MAX_DIST]) -> Vec<Point> {
     if points.is_empty() {
-        return HashSet::new();
+        return vec![Point { x: 0, y: 0 }]; // anchor
     }
 
-    // Start with the neighborhood of the first point
-    let mut intersection = build_distance_set(&points[0], offsets, force_positive);
+    // Intersection of neighborhoods
+    let mut candidates: HashSet<Point> = HashSet::new();
+    let first = points[0];
+    for d in 1..offsets.len() {
+        if !used[d] {
+            for &o in &offsets[d] {
+                let pt = Point { x: first.x + o.x, y: first.y + o.y };
+                if pt.x >= 0 && pt.y >= 0 { // quadrant pruning
+                    candidates.insert(pt);
+                }
+            }
+        }
+    }
 
-    // Intersect with neighborhoods of the remaining points
-    for p in &points[1..] {
-        let neighborhood = build_distance_set(p, offsets, force_positive);
-        intersection = intersection
-            .intersection(&neighborhood)
-            .cloned()
-            .collect();
-
-        // Early exit if intersection becomes empty
-        if intersection.is_empty() {
+    // Intersect with other points
+    for &p in &points[1..] {
+        let mut new_candidates = HashSet::new();
+        for d in 1..offsets.len() {
+            if !used[d] {
+                for &o in &offsets[d] {
+                    let pt = Point { x: p.x + o.x, y: p.y + o.y };
+                    if candidates.contains(&pt) {
+                        new_candidates.insert(pt);
+                    }
+                }
+            }
+        }
+        candidates = new_candidates;
+        if candidates.is_empty() {
             break;
         }
     }
 
-    intersection
+    candidates.into_iter().collect()
 }
