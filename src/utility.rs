@@ -1,7 +1,9 @@
+use std::collections::HashSet;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Point {
-    x: i16,
-    y: i16,
+    pub x: i16,
+    pub y: i16,
 }
 
 
@@ -28,18 +30,52 @@ pub fn update_distances(points: &Vec<Point>, new_point: &Point, distances: &mut 
     }
 }
 
-pub fn compute_offsets(distances: &Vec<i16>, force_positive: bool) -> Vec<Point> { // figure out the set of offsets given distances
+pub fn compute_offsets(distances: &[i16]) -> Vec<Point> {
     let mut offsets = Vec::new();
     for &d in distances {
-        let range = if force_positive { 0..=d } else { -d..=d };
-        
-        for x in range {
-            offsets.push(Point { x, y: d-x.abs() });
-            if !force_positive && x.abs()!=d { // don't duplicate the points
-                offsets.push(Point { x: x, y: x.abs()-d });
+        for x in -d..=d {
+            let y = d - x.abs();
+            offsets.push(Point { x, y });
+            if y != 0 { // don't duplicate the axis points
+                offsets.push(Point { x, y: -y });
             }
         }
     }
     offsets
 }
 
+
+pub fn build_distance_set(p: &Point, offsets: &[Point], force_positive: bool) -> HashSet<Point> {
+    let mut set = HashSet::new();
+    for &o in offsets {
+        if !force_positive || (p.x+o.x >= 0 && p.y+o.y >= 0) {
+            set.insert(Point { x: p.x+o.x, y: p.y+o.y });
+        }
+    }
+    set
+}
+
+pub fn build_intersection_set(points: &[Point], offsets: &[Point], force_positive: bool) -> HashSet<Point> {
+    if points.is_empty() {
+        return HashSet::new();
+    }
+
+    // Start with the neighborhood of the first point
+    let mut intersection = build_distance_set(&points[0], offsets, force_positive);
+
+    // Intersect with neighborhoods of the remaining points
+    for p in &points[1..] {
+        let neighborhood = build_distance_set(p, offsets, force_positive);
+        intersection = intersection
+            .intersection(&neighborhood)
+            .cloned()
+            .collect();
+
+        // Early exit if intersection becomes empty
+        if intersection.is_empty() {
+            break;
+        }
+    }
+
+    intersection
+}
