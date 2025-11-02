@@ -1,6 +1,7 @@
 mod utility;
 
 fn main() {
-    println!("Hello, world!");
+    let distances = vec![3,1];
+    println!("{:?}", utility::compute_offsets(&distances, true));
 }
 
